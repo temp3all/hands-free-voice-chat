@@ -48,16 +48,30 @@ async function getReply(message) {
     return `I heard: ${message}. Connect an agent endpoint to make this a real live assistant.`;
   }
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ message, password: passwordEl.value })
-  });
-  if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
-  const data = await res.json();
-  return data.reply || data.message || data.text || 'No reply field returned.';
+  const payload = JSON.stringify({ message, password: passwordEl.value });
+  let lastErr;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        mode: 'cors',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
+      const data = await res.json();
+      return data.reply || data.message || data.text || 'No reply field returned.';
+    } catch (err) {
+      lastErr = err;
+      await new Promise(r => setTimeout(r, 600));
+    }
+  }
+  throw lastErr || new Error('Fetch failed');
 }
 
 function startRecognition() {
@@ -101,14 +115,15 @@ function startRecognition() {
 
       try { recognition.stop(); } catch {}
 
-      try {
-        const reply = await getReply(text);
-        addMsg('ai', reply);
-        await speak(reply);
-      } catch (err) {
-        addMsg('err', err.message || String(err));
-        await speak('I hit an endpoint error. Check the server URL.');
-      }
+    try {
+      const reply = await getReply(text);
+      addMsg('ai', reply);
+      await speak(reply);
+    } catch (err) {
+      const msg = `${err.name || 'Error'}: ${err.message || String(err)}. Endpoint: ${endpointEl.value.trim()}`;
+      addMsg('err', msg);
+      await speak('I hit an endpoint fetch error.');
+    }
 
       if (running) {
         setTimeout(() => { try { recognition.start(); } catch {} }, 250);
