@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hands-Free Voice Chat</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="orb" id="orb"></div>
+      <h1>Hands-Free Voice Chat</h1>
+      <p class="sub">A browser voice loop: listen → think → speak → keep listening.</p>
+      <button id="startBtn">Start voice chat</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <p id="status">Idle. Tap start and allow microphone access.</p>
+    </section>
+
+    <section class="settings">
+      <label>
+        Agent endpoint
+        <input id="endpoint" placeholder="https://your-server.example.com/chat" />
+      </label>
+      <small>
+        Optional. If blank, the page uses local demo replies. For real Hermes/live AI, connect this to a tiny backend that accepts {"message":"..."} and returns {"reply":"..."}.
+      </small>
+    </section>
+
+    <section class="log" id="log" aria-live="polite"></section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
