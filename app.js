@@ -51,8 +51,7 @@ async function getReply(message) {
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Access-Password': passwordEl.value
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({ message, password: passwordEl.value })
   });
