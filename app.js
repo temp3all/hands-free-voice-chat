@@ -25,6 +25,17 @@ function setStatus(text, mode = '') {
   orb.className = `orb ${mode}`;
 }
 
+function requirePassword() {
+  const v = passwordEl.value.trim();
+  if (!v) {
+    setStatus('Paste access password first.', '');
+    addMsg('err', 'Access password required before starting.');
+    passwordEl.focus();
+    return false;
+  }
+  return true;
+}
+
 function speak(text) {
   return new Promise(resolve => {
     synth.cancel();
@@ -51,8 +62,9 @@ async function postJson(url, payload, timeoutMs = 15000) {
       body: JSON.stringify(payload),
       signal: controller.signal
     });
-    if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
-    return await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Endpoint returned ${res.status}`);
+    return data;
   } finally {
     clearTimeout(timer);
   }
@@ -60,14 +72,12 @@ async function postJson(url, payload, timeoutMs = 15000) {
 
 async function getReply(message) {
   const endpoint = endpointEl.value.trim();
-  if (!endpoint) {
-    const lower = message.toLowerCase();
-    if (lower.includes('hello') || lower.includes('hi')) return 'I am here. The hands free loop is working.';
-    if (lower.includes('stop')) return 'Say stop again or press the stop button to end the session.';
-    return `I heard: ${message}. Connect an agent endpoint to make this a real live assistant.`;
-  }
+  if (!endpoint) return `I heard: ${message}. No endpoint is set.`;
 
-  const chat = await postJson(endpoint, { message, password: passwordEl.value });
+  const password = passwordEl.value.trim();
+  if (!password) throw new Error('Missing access password');
+
+  const chat = await postJson(endpoint, { message, password });
   if (!chat.id || !chat.pending) return chat.reply || chat.message || chat.text || 'No reply field returned.';
 
   addMsg('ai', chat.reply || 'Sent. Waiting for Telegram reply...');
@@ -76,13 +86,14 @@ async function getReply(message) {
   const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 1500));
-    const data = await postJson(replyUrl, { id: chat.id, password: passwordEl.value }, 15000);
+    const data = await postJson(replyUrl, { id: chat.id, password }, 15000);
     if (!data.pending) return data.reply || 'Reply received.';
   }
   return 'No Telegram reply yet.';
 }
 
 function startRecognition() {
+  if (!requirePassword()) return;
   if (!SpeechRecognition) {
     setStatus('SpeechRecognition is not supported in this browser. Use Chrome/Edge desktop or Android Chrome.', '');
     addMsg('err', 'Browser does not support Web Speech Recognition.');
@@ -96,10 +107,8 @@ function startRecognition() {
 
   recognition.onstart = () => setStatus('Listening...', 'listening');
   recognition.onerror = e => {
-    addMsg('err', `Speech recognition error: ${e.error}`);
-    if (running && !speaking) {
-      setTimeout(() => { try { recognition.start(); } catch {} }, 500);
-    }
+    if (e.error !== 'aborted') addMsg('err', `Speech recognition error: ${e.error}`);
+    if (running && !speaking) setTimeout(() => { try { recognition.start(); } catch {} }, 500);
   };
   recognition.onend = () => {
     if (running && !speaking) {
@@ -120,22 +129,20 @@ function startRecognition() {
 
       addMsg('me', text);
       setStatus('Thinking...', '');
-
       try { recognition.stop(); } catch {}
 
-    try {
-      const reply = await getReply(text);
-      addMsg('ai', reply);
-      await speak(reply);
-    } catch (err) {
-      const msg = `${err.name || 'Error'}: ${err.message || String(err)}. Endpoint: ${endpointEl.value.trim()}`;
-      addMsg('err', msg);
-      await speak('I hit an endpoint fetch error.');
-    }
-
-      if (running) {
-        setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+      try {
+        const reply = await getReply(text);
+        addMsg('ai', reply);
+        await speak(reply);
+      } catch (err) {
+        const endpoint = endpointEl.value.trim();
+        const msg = `${err.name || 'Error'}: ${err.message || String(err)}. Endpoint: ${endpoint}`;
+        addMsg('err', msg);
+        await speak('I hit an endpoint fetch error.');
       }
+
+      if (running) setTimeout(() => { try { recognition.start(); } catch {} }, 250);
     }
   };
 
