@@ -6,6 +6,7 @@ const stopBtn = document.getElementById('stopBtn');
 const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
 const endpointEl = document.getElementById('endpoint');
+const passwordEl = document.getElementById('password');
 const orb = document.getElementById('orb');
 
 let recognition;
@@ -49,8 +50,11 @@ async function getReply(message) {
 
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message })
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Access-Password': passwordEl.value
+    },
+    body: JSON.stringify({ message, password: passwordEl.value })
   });
   if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
   const data = await res.json();
@@ -65,41 +69,51 @@ function startRecognition() {
   }
 
   recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.continuous = false;
+  recognition.interimResults = true;
   recognition.lang = navigator.language || 'en-US';
 
   recognition.onstart = () => setStatus('Listening...', 'listening');
-  recognition.onerror = e => addMsg('err', `Speech recognition error: ${e.error}`);
+  recognition.onerror = e => {
+    addMsg('err', `Speech recognition error: ${e.error}`);
+    if (running && !speaking) {
+      setTimeout(() => { try { recognition.start(); } catch {} }, 500);
+    }
+  };
   recognition.onend = () => {
     if (running && !speaking) {
       try { recognition.start(); } catch {}
     }
   };
 
+  let finalText = '';
   recognition.onresult = async event => {
     const result = event.results[event.results.length - 1];
-    if (!result.isFinal || speaking) return;
-    const text = result[0].transcript.trim();
-    if (!text) return;
+    if (speaking) return;
 
-    addMsg('me', text);
-    setStatus('Thinking...', '');
+    if (result.isFinal) {
+      finalText = (finalText + ' ' + result[0].transcript).trim();
+      const text = finalText.trim();
+      finalText = '';
+      if (!text) return;
 
-    // Avoid the mic hearing the assistant voice.
-    try { recognition.stop(); } catch {}
+      addMsg('me', text);
+      setStatus('Thinking...', '');
 
-    try {
-      const reply = await getReply(text);
-      addMsg('ai', reply);
-      await speak(reply);
-    } catch (err) {
-      addMsg('err', err.message || String(err));
-      await speak('I hit an endpoint error. Check the server URL.');
-    }
+      try { recognition.stop(); } catch {}
 
-    if (running) {
-      setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+      try {
+        const reply = await getReply(text);
+        addMsg('ai', reply);
+        await speak(reply);
+      } catch (err) {
+        addMsg('err', err.message || String(err));
+        await speak('I hit an endpoint error. Check the server URL.');
+      }
+
+      if (running) {
+        setTimeout(() => { try { recognition.start(); } catch {} }, 250);
+      }
     }
   };
 
