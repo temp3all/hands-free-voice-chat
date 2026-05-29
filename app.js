@@ -39,6 +39,25 @@ function speak(text) {
   });
 }
 
+async function postJson(url, payload, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function getReply(message) {
   const endpoint = endpointEl.value.trim();
   if (!endpoint) {
@@ -48,30 +67,19 @@ async function getReply(message) {
     return `I heard: ${message}. Connect an agent endpoint to make this a real live assistant.`;
   }
 
-  const payload = JSON.stringify({ message, password: passwordEl.value });
-  let lastErr;
-  for (let i = 0; i < 2; i++) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        mode: 'cors',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-      if (!res.ok) throw new Error(`Endpoint returned ${res.status}`);
-      const data = await res.json();
-      return data.reply || data.message || data.text || 'No reply field returned.';
-    } catch (err) {
-      lastErr = err;
-      await new Promise(r => setTimeout(r, 600));
-    }
+  const chat = await postJson(endpoint, { message, password: passwordEl.value });
+  if (!chat.id || !chat.pending) return chat.reply || chat.message || chat.text || 'No reply field returned.';
+
+  addMsg('ai', chat.reply || 'Sent. Waiting for Telegram reply...');
+  setStatus('Waiting for Telegram reply...', '');
+  const replyUrl = endpoint.replace(/\/chat\/?$/, '/reply');
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 1500));
+    const data = await postJson(replyUrl, { id: chat.id, password: passwordEl.value }, 15000);
+    if (!data.pending) return data.reply || 'Reply received.';
   }
-  throw lastErr || new Error('Fetch failed');
+  return 'No Telegram reply yet.';
 }
 
 function startRecognition() {
